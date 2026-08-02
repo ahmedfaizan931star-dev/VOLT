@@ -16,9 +16,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Playwright
+      - name: Install Playwright locally
         run: |
-          npm install -g playwright
+          npm init -y
+          npm install playwright
           npx playwright install chromium
           npx playwright install-deps chromium
 
@@ -44,7 +45,6 @@ jobs:
             const pageHeight = await page.evaluate(() => document.body.scrollHeight);
             console.log('Page height:', pageHeight);
 
-            // 4 Section Screenshots
             const sections = [
               { name: '01_hero', scroll: 0 },
               { name: '02_can_stage', scroll: Math.floor(pageHeight * 0.25) },
@@ -59,13 +59,11 @@ jobs:
               console.log('Screenshot: ' + section.name);
             }
 
-            // Full Page Screenshot
             await page.evaluate(() => window.scrollTo(0, 0));
             await page.waitForTimeout(500);
             await page.screenshot({ path: 'screenshots/volt_fullpage.png', fullPage: true, type: 'png' });
             console.log('Full page screenshot');
 
-            // MP4 Scroll Recording
             console.log('Recording MP4...');
             const fps = 30;
             const duration = 8;
