@@ -1,0 +1,127 @@
+name: VOLT Screenshots & Video
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright
+          npx playwright install chromium
+          npx playwright install-deps chromium
+
+      - name: Create capture script
+        run: |
+          cat > capture.js << 'SCRIPT'
+          const { chromium } = require('playwright');
+          const fs = require('fs');
+          const path = require('path');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const context = await browser.newContext({
+              viewport: { width: 1920, height: 1080 },
+              deviceScaleFactor: 1
+            });
+            const page = await context.newPage();
+
+            const filePath = 'file://' + path.resolve('index.html');
+            await page.goto(filePath, { waitUntil: 'networkidle' });
+            await page.waitForTimeout(6000);
+
+            const pageHeight = await page.evaluate(() => document.body.scrollHeight);
+            console.log('Page height:', pageHeight);
+
+            // 4 Section Screenshots
+            const sections = [
+              { name: '01_hero', scroll: 0 },
+              { name: '02_can_stage', scroll: Math.floor(pageHeight * 0.25) },
+              { name: '03_ingredients', scroll: Math.floor(pageHeight * 0.55) },
+              { name: '04_cta', scroll: Math.floor(pageHeight * 0.82) }
+            ];
+
+            for (const section of sections) {
+              await page.evaluate(y => window.scrollTo(0, y), section.scroll);
+              await page.waitForTimeout(800);
+              await page.screenshot({ path: `screenshots/${section.name}.png`, type: 'png' });
+              console.log('Screenshot: ' + section.name);
+            }
+
+            // Full Page Screenshot
+            await page.evaluate(() => window.scrollTo(0, 0));
+            await page.waitForTimeout(500);
+            await page.screenshot({ path: 'screenshots/volt_fullpage.png', fullPage: true, type: 'png' });
+            console.log('Full page screenshot');
+
+            // MP4 Scroll Recording
+            console.log('Recording MP4...');
+            const fps = 30;
+            const duration = 8;
+            const totalFrames = fps * duration;
+            const scrollableHeight = pageHeight - 1080;
+
+            fs.mkdirSync('frames', { recursive: true });
+
+            for (let i = 0; i < totalFrames; i++) {
+              const progress = i / (totalFrames - 1);
+              const eased = progress < 0.5
+                ? 2 * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+              const scrollY = Math.floor(eased * scrollableHeight);
+
+              await page.evaluate(y => window.scrollTo(0, y), scrollY);
+              await page.waitForTimeout(20);
+
+              const frameNum = String(i).padStart(4, '0');
+              await page.screenshot({ path: `frames/frame_${frameNum}.png`, type: 'png' });
+
+              if (i % 30 === 0) {
+                console.log('Frame ' + i + '/' + totalFrames);
+              }
+            }
+
+            await browser.close();
+            console.log('All captures complete!');
+          })();
+          SCRIPT
+
+      - name: Run capture
+        run: |
+          mkdir -p screenshots
+          node capture.js
+
+      - name: Convert frames to MP4
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -y \
+            -framerate 30 \
+            -i frames/frame_%04d.png \
+            -c:v libx264 \
+            -pix_fmt yuv420p \
+            -crf 18 \
+            -preset slow \
+            -movflags +faststart \
+            screenshots/volt_scroll.mp4
+          echo "MP4 created"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: volt-captures
+          path: |
+            screenshots/*.png
+            screenshots/*.mp4
+          retention-days: 30
